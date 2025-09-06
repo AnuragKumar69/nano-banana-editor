@@ -38,13 +38,32 @@ export default function App() {
 
     // Pan & Zoom state
     const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 });
-    const [isPanning, setIsPanning] = useState(false);
+
+    // --- Performance Refs for direct DOM manipulation ---
+    const isPanningRef = useRef(false);
     const lastMousePositionRef = useRef({ x: 0, y: 0 });
     const mainContentRef = useRef<HTMLDivElement>(null);
+    const canvasContainerRef = useRef<HTMLDivElement>(null);
+    const cursorPreviewRef = useRef<HTMLDivElement>(null);
+    const transformRef = useRef(transform); // Ref to hold transform values during pan to avoid re-renders
+
+    // Sync transform state with ref whenever it changes from non-pan sources (wheel zoom, reset)
+    useEffect(() => {
+        transformRef.current = transform;
+        if (canvasContainerRef.current) {
+            canvasContainerRef.current.style.transform = `scale(${transform.scale}) translate(${transform.x}px, ${transform.y}px)`;
+        }
+    }, [transform]);
     
-    // Cursor Preview State
-    const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-    const [isCursorVisible, setIsCursorVisible] = useState(false);
+    // Effect to update cursor preview style when brush changes, without needing a full re-render
+    useEffect(() => {
+        if (cursorPreviewRef.current) {
+            cursorPreviewRef.current.style.width = `${brushSize}px`;
+            cursorPreviewRef.current.style.height = `${brushSize}px`;
+            cursorPreviewRef.current.style.border = `2px solid ${maskBrushMode === 'brush' ? 'white' : '#ef4444'}`;
+            cursorPreviewRef.current.style.backgroundColor = maskBrushMode === 'brush' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(239, 68, 68, 0.3)';
+        }
+    }, [brushSize, maskBrushMode]);
 
 
     const clearMaskRef = useRef<() => void>(null);
@@ -158,7 +177,7 @@ export default function App() {
         setActiveHistoryIndex(newActiveIndex);
     };
     
-    // --- Pan and Zoom Handlers ---
+    // --- Pan and Zoom Handlers (Optimized) ---
     const resetTransform = () => setTransform({ scale: 1, x: 0, y: 0 });
 
     const handleWheel = (e: React.WheelEvent) => {
@@ -168,43 +187,80 @@ export default function App() {
         
         setTransform(prev => {
             const newScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev.scale + scaleChange));
+            // Update the state which will trigger the useEffect to update the DOM
             return { ...prev, scale: newScale };
         });
     };
     
     const handleMouseDown = (e: React.MouseEvent) => {
-        // In mask mode, a primary click without Alt is for drawing. Let the canvas handle it.
         if (isMasking && e.button === 0 && !e.nativeEvent.altKey) {
             return;
         }
 
         const canPan = isMasking
-            ? e.button === 1 || (e.button === 0 && e.nativeEvent.altKey) // Middle or Alt+Left
-            : e.button === 0 || e.button === 1; // Left or Middle
+            ? e.button === 1 || (e.button === 0 && e.nativeEvent.altKey)
+            : e.button === 0 || e.button === 1;
 
         if (canPan) {
             e.preventDefault();
-            setIsPanning(true);
+            isPanningRef.current = true;
             lastMousePositionRef.current = { x: e.clientX, y: e.clientY };
+            if (mainContentRef.current) {
+                mainContentRef.current.style.cursor = 'grabbing';
+            }
+            if (canvasContainerRef.current) {
+                canvasContainerRef.current.style.transition = 'none'; // Disable transition for immediate feedback
+            }
         }
     };
     
     const handleMouseMove = (e: React.MouseEvent) => {
-        setMousePosition({ x: e.clientX, y: e.clientY });
-        if (isPanning) {
+        // 1. Update custom cursor position directly
+        if (cursorPreviewRef.current) {
+            cursorPreviewRef.current.style.transform = `translate3d(${e.clientX - brushSize / 2}px, ${e.clientY - brushSize / 2}px, 0)`;
+        }
+
+        // 2. Update canvas pan position directly if panning
+        if (isPanningRef.current) {
             const dx = e.clientX - lastMousePositionRef.current.x;
             const dy = e.clientY - lastMousePositionRef.current.y;
-            setTransform(prev => ({
-                ...prev,
-                x: prev.x + dx,
-                y: prev.y + dy,
-            }));
+            
+            transformRef.current.x += dx;
+            transformRef.current.y += dy;
+            
+            if (canvasContainerRef.current) {
+                canvasContainerRef.current.style.transform = `scale(${transformRef.current.scale}) translate(${transformRef.current.x}px, ${transformRef.current.y}px)`;
+            }
+            
             lastMousePositionRef.current = { x: e.clientX, y: e.clientY };
         }
     };
     
     const handleMouseUp = () => {
-        setIsPanning(false);
+        if (isPanningRef.current) {
+            isPanningRef.current = false;
+            if (mainContentRef.current) {
+                mainContentRef.current.style.cursor = isMasking ? 'none' : 'grab';
+            }
+            if (canvasContainerRef.current) {
+                canvasContainerRef.current.style.transition = ''; // Re-enable CSS transition
+            }
+            // Sync the final transform with React state
+            setTransform({ ...transformRef.current });
+        }
+    };
+
+    const handleMouseEnter = () => {
+        if (cursorPreviewRef.current) {
+            cursorPreviewRef.current.style.display = 'block';
+        }
+    };
+
+    const handleMouseLeave = () => {
+        handleMouseUp(); // Ensure panning stops if mouse leaves
+        if (cursorPreviewRef.current) {
+            cursorPreviewRef.current.style.display = 'none';
+        }
     };
 
     // --- Undo/Redo ---
@@ -222,7 +278,6 @@ export default function App() {
      // --- Keyboard Shortcuts ---
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Ignore shortcuts if typing in an input/textarea
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
                 return;
             }
@@ -254,7 +309,7 @@ export default function App() {
 
 
     const currentImage = editHistory.length > 0 ? editHistory[activeHistoryIndex] : null;
-    const cursorStyle = isMasking ? 'none' : isPanning ? 'grabbing' : 'grab';
+    const cursorStyle = isMasking ? 'none' : 'grab'; // Default cursor; 'grabbing' is set imperatively
 
     if (editHistory.length === 0) {
         return <ImageUploader key={key} onImageUpload={handleImageUpload} />;
@@ -291,23 +346,17 @@ export default function App() {
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
-                    onMouseLeave={() => {
-                        handleMouseUp();
-                        setIsCursorVisible(false);
-                    }}
-                    onMouseEnter={() => setIsCursorVisible(true)}
+                    onMouseLeave={handleMouseLeave}
+                    onMouseEnter={handleMouseEnter}
                     style={{ cursor: cursorStyle }}
                 >
-                     {isMasking && isCursorVisible && (
+                     {isMasking && (
                         <div
+                            ref={cursorPreviewRef}
                             className="fixed top-0 left-0 rounded-full pointer-events-none z-50"
                             style={{
-                                border: `2px solid ${maskBrushMode === 'brush' ? 'white' : '#ef4444'}`,
-                                backgroundColor: maskBrushMode === 'brush' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+                                display: 'none', // Initially hidden, made visible on mouse enter
                                 mixBlendMode: 'normal',
-                                width: `${brushSize}px`,
-                                height: `${brushSize}px`,
-                                transform: `translate3d(${mousePosition.x - brushSize / 2}px, ${mousePosition.y - brushSize / 2}px, 0)`,
                             }}
                         />
                     )}
@@ -319,7 +368,11 @@ export default function App() {
                         >
                             <FitToScreenIcon className="w-5 h-5" />
                         </button>
-                       <div className="w-full h-full relative group transition-transform duration-100" style={{ transform: `scale(${transform.scale}) translate(${transform.x}px, ${transform.y}px)` }}>
+                       <div 
+                           ref={canvasContainerRef} 
+                           className="w-full h-full relative group transition-transform duration-100" 
+                           style={{ transform: `scale(${transform.scale}) translate(${transform.x}px, ${transform.y}px)` }}
+                        >
                             {isLoading && (
                                 <div className="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center z-30 rounded-xl">
                                     <Loader />
