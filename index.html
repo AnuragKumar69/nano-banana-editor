@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -10,6 +9,44 @@
     <style>
       body {
         font-family: 'Inter', sans-serif;
+        background-color: #05070D;
+      }
+      .cursor-brush {
+        cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="rgba(59, 130, 246, 0.3)" stroke="white" stroke-width="2"/><circle cx="16" cy="16" r="10" fill="none" stroke="black" stroke-width="1.5"/></svg>') 16 16, auto;
+      }
+      .cursor-eraser {
+         cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="rgba(255, 255, 255, 0.3)" stroke="white" stroke-width="2"/><circle cx="16" cy="16" r="10" fill="none" stroke="black" stroke-width="1.5"/><line x1="8" y1="24" x2="24" y2="8" stroke="white" stroke-width="3"/><line x1="9" y1="23" x2="23" y2="9" stroke="black" stroke-width="1.5"/></svg>') 16 16, auto;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0px); }
+      }
+      .fade-in {
+        animation: fadeIn 0.5s ease-in-out forwards;
+      }
+      @keyframes fade-in-out {
+          0% { opacity: 0; transform: translateY(8px); }
+          20% { opacity: 1; transform: translateY(0); }
+          80% { opacity: 1; transform: translateY(0); }
+          100% { opacity: 0; transform: translateY(-8px); }
+      }
+      .loader-text-animate {
+          animation: fade-in-out 2.5s ease-in-out infinite;
+      }
+      /* Custom scrollbar for webkit browsers */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 3px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
       }
     </style>
      <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -26,7 +63,7 @@
 }
 </script>
 </head>
-  <body class="bg-gray-900 text-white">
+  <body class="text-white">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

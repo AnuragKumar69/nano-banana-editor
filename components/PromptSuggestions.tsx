@@ -5,22 +5,22 @@ interface PromptSuggestionsProps {
 }
 
 const suggestions = [
-    'Add a pirate hat and an eyepatch',
-    'Turn it into a watercolor painting',
-    'Change background to a futuristic city',
-    'Make it black and white, except for one color',
-    'Add a friendly alien waving',
-    'Give it a cyberpunk aesthetic'
+    'Add a pirate hat',
+    'Make it a watercolor painting',
+    'Add a futuristic city background',
+    'Change style to cyberpunk',
+    'Add a friendly alien',
 ];
 
 export const PromptSuggestions: React.FC<PromptSuggestionsProps> = ({ onSelectPrompt }) => {
     return (
-        <div className="flex flex-wrap justify-center gap-2">
+        <div className="flex flex-wrap justify-center items-center gap-x-3 gap-y-2">
+            <span className="text-sm font-medium text-gray-500">Try:</span>
             {suggestions.map((prompt, index) => (
                 <button
                     key={index}
                     onClick={() => onSelectPrompt(prompt)}
-                    className="px-3 py-1 bg-gray-700 text-gray-300 rounded-full text-sm hover:bg-yellow-500 hover:text-gray-900 transition-colors"
+                    className="text-gray-400 hover:text-blue-400 text-sm font-medium transition-colors"
                 >
                     {prompt}
                 </button>

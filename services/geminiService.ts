@@ -1,5 +1,4 @@
-
-import { GoogleGenAI, Modality, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Modality, GenerateContentResponse, Part } from "@google/genai";
 
 export interface EditResult {
     image?: { base64: string; mimeType: string };
@@ -9,7 +8,8 @@ export interface EditResult {
 export async function editImage(
     base64ImageData: string,
     mimeType: string,
-    prompt: string
+    prompt: string,
+    maskBase64?: string
 ): Promise<EditResult> {
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
@@ -19,22 +19,37 @@ export async function editImage(
 
     const ai = new GoogleGenAI({ apiKey });
 
-    const imagePart = {
+    const imagePart: Part = {
         inlineData: {
             data: base64ImageData,
             mimeType: mimeType,
         },
     };
 
-    const textPart = {
-        text: prompt,
-    };
+    const requestParts: Part[] = [imagePart];
+
+    if (maskBase64) {
+        const maskPart: Part = {
+            inlineData: {
+                data: maskBase64,
+                mimeType: 'image/png', // Masks are always PNGs from canvas
+            },
+        };
+        requestParts.push(maskPart);
+    }
+    
+    // Add the final text prompt, instructing the model how to use the mask if present
+    const fullPrompt = maskBase64 
+        ? `The user has provided an image and a mask. The mask highlights a specific region of interest. Apply the following user instruction to the image, taking the masked area into account: ${prompt}`
+        : prompt;
+
+    requestParts.push({ text: fullPrompt });
 
     try {
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image-preview',
             contents: {
-                parts: [imagePart, textPart],
+                parts: requestParts,
             },
             config: {
                 responseModalities: [Modality.IMAGE, Modality.TEXT],
@@ -57,21 +72,23 @@ export async function editImage(
         }
 
         if (!result.image) {
-            // Check for safety ratings or other reasons for no image
             const blockReason = response.candidates?.[0]?.finishReason;
             if(blockReason === 'SAFETY') {
                  throw new Error("The request was blocked for safety reasons. Please try a different prompt.");
             }
-            throw new Error("The model did not return an image. It might have refused the request. Try being more descriptive.");
+            const modelTextResponse = result.text || "The model did not return an image and may have refused the request.";
+            throw new Error(modelTextResponse);
         }
 
         return result;
 
     } catch (error) {
         console.error("Error calling Gemini API:", error);
-        // Pass a more user-friendly error message
-        if (error instanceof Error && error.message.includes('API key not valid')) {
-            throw new Error('The provided API key is not valid. Please check your configuration.');
+        if (error instanceof Error) {
+             if (error.message.includes('API key not valid')) {
+                throw new Error('The provided API key is not valid. Please check your configuration.');
+            }
+            throw error; // Re-throw the original error message from the model or a generic one
         }
         throw new Error("Failed to communicate with the AI model. Please try again later.");
     }
