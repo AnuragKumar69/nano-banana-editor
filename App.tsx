@@ -240,7 +240,7 @@ export default function App() {
         if (isPanningRef.current) {
             isPanningRef.current = false;
             if (mainContentRef.current) {
-                mainContentRef.current.style.cursor = isMasking ? 'none' : 'grab';
+                mainContentRef.current.style.cursor = isMasking ? 'crosshair' : 'grab';
             }
             if (canvasContainerRef.current) {
                 canvasContainerRef.current.style.transition = ''; // Re-enable CSS transition
@@ -309,7 +309,7 @@ export default function App() {
 
 
     const currentImage = editHistory.length > 0 ? editHistory[activeHistoryIndex] : null;
-    const cursorStyle = isMasking ? 'none' : 'grab'; // Default cursor; 'grabbing' is set imperatively
+    const cursorStyle = isMasking ? 'crosshair' : 'grab'; // Default cursor; 'grabbing' is set imperatively
 
     if (editHistory.length === 0) {
         return <ImageUploader key={key} onImageUpload={handleImageUpload} />;
