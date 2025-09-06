@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, RefObject } from 'react';
+import type { BoundingBox } from '../services/geminiService';
 
 interface MaskingCanvasProps {
     imageUrl: string;
@@ -7,11 +8,12 @@ interface MaskingCanvasProps {
     brushSize: number;
     clearMaskRef: RefObject<() => void>;
     undoMaskRef: RefObject<() => void>;
+    drawMaskFromBoundingBoxRef: RefObject<(boundingBox: BoundingBox) => void>;
     onUndoStateChange: (canUndo: boolean) => void;
     transform: { scale: number; x: number; y: number };
 }
 
-export const MaskingCanvas: React.FC<MaskingCanvasProps> = ({ imageUrl, onMaskChange, brushMode, brushSize, clearMaskRef, undoMaskRef, onUndoStateChange, transform }) => {
+export const MaskingCanvas: React.FC<MaskingCanvasProps> = ({ imageUrl, onMaskChange, brushMode, brushSize, clearMaskRef, undoMaskRef, drawMaskFromBoundingBoxRef, onUndoStateChange, transform }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [history, setHistory] = useState<ImageData[]>([]);
@@ -60,11 +62,35 @@ export const MaskingCanvas: React.FC<MaskingCanvasProps> = ({ imageUrl, onMaskCh
             onMaskChange(null);
         }
     };
+
+     const drawMaskFromBoundingBox = (boundingBox: BoundingBox) => {
+        const canvas = canvasRef.current;
+        const ctx = getCanvasContext();
+        if (!canvas || !ctx) return;
+        
+        clearCanvas();
+
+        const { x, y, width, height } = boundingBox; // These are normalized
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+
+        const rectX = x * canvasWidth;
+        const rectY = y * canvasHeight;
+        const rectWidth = width * canvasWidth;
+        const rectHeight = height * canvasHeight;
+        
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.7)';
+        ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+        
+        stopDrawing();
+    };
     
     useEffect(() => {
         if (clearMaskRef) (clearMaskRef as React.MutableRefObject<() => void>).current = clearCanvas;
         if (undoMaskRef) (undoMaskRef as React.MutableRefObject<() => void>).current = undo;
-    }, [clearMaskRef, undoMaskRef]);
+        if (drawMaskFromBoundingBoxRef) (drawMaskFromBoundingBoxRef as React.MutableRefObject<(boundingBox: BoundingBox) => void>).current = drawMaskFromBoundingBox;
+    }, [clearMaskRef, undoMaskRef, drawMaskFromBoundingBoxRef]);
 
 
     useEffect(() => {

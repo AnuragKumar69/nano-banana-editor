@@ -7,6 +7,8 @@ import { MagicWandIcon } from './icons/MagicWandIcon';
 import { DownloadIcon } from './icons/DownloadIcon';
 import { AppIcon } from './icons/AppIcon';
 import { RedoIcon } from './icons/RedoIcon';
+import { AutoDetectIcon } from './icons/AutoDetectIcon';
+import { SpinnerIcon } from './icons/SpinnerIcon';
 
 interface LeftSidebarProps {
     onReset: () => void;
@@ -25,6 +27,8 @@ interface LeftSidebarProps {
     onRedo: () => void;
     canUndo: boolean;
     canRedo: boolean;
+    onAutoDetect: () => void;
+    isDetecting: boolean;
 }
 
 const Tooltip: React.FC<{ text: string, children: React.ReactNode }> = ({ text, children }) => (
@@ -62,6 +66,12 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = (props) => {
                 </Tooltip>
                 
                 <div className="w-full h-px bg-gray-800 my-2"></div>
+
+                 <Tooltip text="Auto-detect Features">
+                    <button onClick={props.onAutoDetect} disabled={props.isDetecting} className="p-3 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white disabled:text-gray-600 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors">
+                        {props.isDetecting ? <SpinnerIcon className="w-6 h-6" /> : <AutoDetectIcon className="w-6 h-6" />}
+                    </button>
+                </Tooltip>
 
                 <Tooltip text="Masking Mode (M)">
                     <button onClick={props.onToggleMasking} className={`p-3 rounded-lg transition-colors ${props.isMasking ? 'bg-blue-500/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>

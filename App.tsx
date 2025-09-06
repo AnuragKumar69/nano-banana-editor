@@ -1,12 +1,13 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { Loader } from './components/Loader';
-import { EditResult, editImage } from './services/geminiService';
+import { EditResult, editImage, detectFeatures, Feature, BoundingBox } from './services/geminiService';
 import { MaskingCanvas } from './components/MaskingCanvas';
 import { LeftSidebar } from './components/LeftSidebar';
 import { RightSidebar } from './components/RightSidebar';
 import { BottomPanel } from './components/BottomPanel';
 import { FitToScreenIcon } from './components/icons/FitToScreenIcon';
+import { FeatureDetectionOverlay } from './components/FeatureDetectionOverlay';
 
 
 const dataUrlToParts = (dataUrl: string): { base64: string, mimeType: string } => {
@@ -25,9 +26,13 @@ export default function App() {
     const [prompt, setPrompt] = useState<string>('');
     const [lastSuccessfulPrompt, setLastSuccessfulPrompt] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [isDetecting, setIsDetecting] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [modelResponseText, setModelResponseText] = useState<string | null>(null);
     const [key, setKey] = useState<number>(0);
+
+    // Feature Detection
+    const [detectedFeatures, setDetectedFeatures] = useState<Feature[]>([]);
 
     // Masking state
     const [isMasking, setIsMasking] = useState(false);
@@ -68,6 +73,7 @@ export default function App() {
 
     const clearMaskRef = useRef<() => void>(null);
     const undoMaskRef = useRef<() => void>(null);
+    const drawMaskFromBoundingBoxRef = useRef<(boundingBox: BoundingBox) => void>(null);
 
 
     const handleImageUpload = (file: File) => {
@@ -82,6 +88,7 @@ export default function App() {
             setLastSuccessfulPrompt('');
             setIsMasking(false);
             setMaskDataUrl(null);
+            setDetectedFeatures([]);
             resetTransform();
         };
         reader.onerror = () => setError("Failed to read the image file.");
@@ -106,6 +113,7 @@ export default function App() {
         setIsLoading(true);
         setError(null);
         setModelResponseText(null);
+        setDetectedFeatures([]);
 
         try {
             const sourceImage = editHistory[activeHistoryIndex];
@@ -134,6 +142,38 @@ export default function App() {
             setIsLoading(false);
         }
     }, [prompt, lastSuccessfulPrompt, editHistory, activeHistoryIndex, maskDataUrl]);
+    
+    const handleAutoDetect = useCallback(async () => {
+        const currentImage = editHistory[activeHistoryIndex];
+        if (!currentImage || isDetecting) return;
+
+        setIsDetecting(true);
+        setError(null);
+        setModelResponseText(null);
+        setDetectedFeatures([]);
+
+        try {
+            const { base64, mimeType } = dataUrlToParts(currentImage);
+            const features = await detectFeatures(base64, mimeType);
+            setDetectedFeatures(features);
+            if (features.length === 0) {
+                setModelResponseText("No distinct features were detected.");
+            }
+        } catch (e) {
+            console.error(e);
+            setError(e instanceof Error ? e.message : "An unknown error occurred during feature detection.");
+        } finally {
+            setIsDetecting(false);
+        }
+    }, [editHistory, activeHistoryIndex, isDetecting]);
+    
+    const handleFeatureSelect = (feature: Feature) => {
+        if (drawMaskFromBoundingBoxRef.current) {
+            drawMaskFromBoundingBoxRef.current(feature.boundingBox);
+            setIsMasking(true);
+            setDetectedFeatures([]);
+        }
+    };
 
     const handleMagicErase = () => {
         if (!maskDataUrl) {
@@ -152,12 +192,14 @@ export default function App() {
         setModelResponseText(null);
         setIsMasking(false);
         setMaskDataUrl(null);
+        setDetectedFeatures([]);
         setKey(prevKey => prevKey + 1);
     };
 
     const handleHistorySelect = (index: number) => {
         if (index >= 0 && index < editHistory.length) {
             setActiveHistoryIndex(index);
+            setDetectedFeatures([]);
         }
     };
 
@@ -193,6 +235,8 @@ export default function App() {
     };
     
     const handleMouseDown = (e: React.MouseEvent) => {
+        if (e.target !== e.currentTarget) return;
+
         if (isMasking && e.button === 0 && !e.nativeEvent.altKey) {
             return;
         }
@@ -269,10 +313,12 @@ export default function App() {
 
     const handleUndo = useCallback(() => {
         if (canUndo) setActiveHistoryIndex(prev => prev - 1);
+        setDetectedFeatures([]);
     }, [canUndo]);
 
     const handleRedo = useCallback(() => {
         if (canRedo) setActiveHistoryIndex(prev => prev + 1);
+        setDetectedFeatures([]);
     }, [canRedo]);
     
      // --- Keyboard Shortcuts ---
@@ -295,6 +341,12 @@ export default function App() {
                 e.preventDefault();
                 setIsMasking(m => !m);
             }
+             if (e.key === 'Escape') {
+                if (detectedFeatures.length > 0) {
+                    e.preventDefault();
+                    setDetectedFeatures([]);
+                }
+            }
             if (isMasking) {
                 if (e.key === 'b') { e.preventDefault(); setMaskBrushMode('brush'); }
                 if (e.key === 'e') { e.preventDefault(); setMaskBrushMode('eraser'); }
@@ -305,11 +357,11 @@ export default function App() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleUndo, handleRedo, isMasking, handleEditRequest]);
+    }, [handleUndo, handleRedo, isMasking, handleEditRequest, detectedFeatures]);
 
 
     const currentImage = editHistory.length > 0 ? editHistory[activeHistoryIndex] : null;
-    const cursorStyle = isMasking ? 'crosshair' : 'grab'; // Default cursor; 'grabbing' is set imperatively
+    const cursorStyle = isMasking ? 'crosshair' : (detectedFeatures.length > 0 ? 'default' : 'grab');
 
     if (editHistory.length === 0) {
         return <ImageUploader key={key} onImageUpload={handleImageUpload} />;
@@ -336,6 +388,8 @@ export default function App() {
                     onRedo={handleRedo}
                     canUndo={canUndo}
                     canRedo={canRedo}
+                    onAutoDetect={handleAutoDetect}
+                    isDetecting={isDetecting}
                 />
 
                 {/* Main Content */}
@@ -389,8 +443,16 @@ export default function App() {
                                     brushSize={brushSize}
                                     clearMaskRef={clearMaskRef} 
                                     undoMaskRef={undoMaskRef} 
+                                    drawMaskFromBoundingBoxRef={drawMaskFromBoundingBoxRef}
                                     onUndoStateChange={setCanUndoMask}
                                     transform={transform}
+                                />
+                            )}
+                             {detectedFeatures.length > 0 && (
+                                <FeatureDetectionOverlay
+                                    features={detectedFeatures}
+                                    onFeatureSelect={handleFeatureSelect}
+                                    onClear={() => setDetectedFeatures([])}
                                 />
                             )}
                         </div>

@@ -1,8 +1,29 @@
-import { GoogleGenAI, Modality, GenerateContentResponse, Part } from "@google/genai";
+import { GoogleGenAI, Modality, GenerateContentResponse, Part, Type } from "@google/genai";
+
+export interface BoundingBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface Feature {
+    name: string;
+    boundingBox: BoundingBox;
+}
 
 export interface EditResult {
     image?: { base64: string; mimeType: string };
     text?: string;
+}
+
+const getAiClient = () => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        console.error("API_KEY environment variable not set.");
+        throw new Error("API key is missing. Please make sure it's configured in your environment.");
+    }
+    return new GoogleGenAI({ apiKey });
 }
 
 export async function editImage(
@@ -11,14 +32,7 @@ export async function editImage(
     prompt: string,
     maskBase64?: string
 ): Promise<EditResult> {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-        console.error("API_KEY environment variable not set.");
-        throw new Error("API key is missing. Please make sure it's configured in your environment.");
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
-
+    const ai = getAiClient();
     const imagePart: Part = {
         inlineData: {
             data: base64ImageData,
@@ -38,7 +52,6 @@ export async function editImage(
         requestParts.push(maskPart);
     }
     
-    // Add the final text prompt, instructing the model how to use the mask if present
     const fullPrompt = maskBase64 
         ? `The user has provided an image and a mask. The mask highlights a specific region of interest. Apply the following user instruction to the image, taking the masked area into account: ${prompt}`
         : prompt;
@@ -57,7 +70,6 @@ export async function editImage(
         });
 
         const result: EditResult = {};
-
         if (response.candidates && response.candidates[0].content.parts) {
             for (const part of response.candidates[0].content.parts) {
                 if (part.text) {
@@ -83,13 +95,70 @@ export async function editImage(
         return result;
 
     } catch (error) {
-        console.error("Error calling Gemini API:", error);
-        if (error instanceof Error) {
-             if (error.message.includes('API key not valid')) {
-                throw new Error('The provided API key is not valid. Please check your configuration.');
-            }
-            throw error; // Re-throw the original error message from the model or a generic one
+        console.error("Error calling Gemini API for image edit:", error);
+        if (error instanceof Error && error.message.includes('API key not valid')) {
+            throw new Error('The provided API key is not valid. Please check your configuration.');
         }
-        throw new Error("Failed to communicate with the AI model. Please try again later.");
+        throw error;
+    }
+}
+
+
+export async function detectFeatures(
+    base64ImageData: string,
+    mimeType: string,
+): Promise<Feature[]> {
+    const ai = getAiClient();
+    const imagePart: Part = {
+        inlineData: {
+            data: base64ImageData,
+            mimeType: mimeType,
+        },
+    };
+
+    const prompt = `Detect all distinct objects or salient features in the image. For each feature, provide a descriptive name and its precise bounding box. The bounding box must be represented as normalized coordinates, where the top-left corner of the image is (0,0) and the bottom-right is (1,1). The properties for the bounding box should be "x", "y", "width", and "height", all of which must be floating-point numbers between 0.0 and 1.0.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: { parts: [imagePart, { text: prompt }] },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            name: {
+                                type: Type.STRING,
+                                description: 'A descriptive name for the detected object or feature.'
+                            },
+                            boundingBox: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    x: { type: Type.NUMBER, description: 'Normalized x-coordinate of the top-left corner (0.0 to 1.0).' },
+                                    y: { type: Type.NUMBER, description: 'Normalized y-coordinate of the top-left corner (0.0 to 1.0).' },
+                                    width: { type: Type.NUMBER, description: 'Normalized width of the box (0.0 to 1.0).' },
+                                    height: { type: Type.NUMBER, description: 'Normalized height of the box (0.0 to 1.0).' },
+                                },
+                                required: ['x', 'y', 'width', 'height']
+                            }
+                        },
+                        required: ['name', 'boundingBox']
+                    }
+                },
+            },
+        });
+
+        const jsonString = response.text;
+        const features = JSON.parse(jsonString);
+        return features as Feature[];
+
+    } catch (error) {
+        console.error("Error calling Gemini API for feature detection:", error);
+        if (error instanceof Error && error.message.includes('API key not valid')) {
+            throw new Error('The provided API key is not valid. Please check your configuration.');
+        }
+        throw new Error("The AI model failed to detect features. This can happen with complex images or if the request was blocked.");
     }
 }
