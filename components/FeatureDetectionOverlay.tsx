@@ -25,6 +25,7 @@ export const FeatureDetectionOverlay: React.FC<FeatureDetectionOverlayProps> = (
                             height: `${height * 100}%`,
                         }}
                         onClick={() => onFeatureSelect(feature)}
+                        onMouseDown={(e) => e.stopPropagation()}
                         title={`Select ${feature.name}`}
                         aria-label={`Select ${feature.name}`}
                     >

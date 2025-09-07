@@ -235,8 +235,6 @@ export default function App() {
     };
     
     const handleMouseDown = (e: React.MouseEvent) => {
-        if (e.target !== e.currentTarget) return;
-
         if (isMasking && e.button === 0 && !e.nativeEvent.altKey) {
             return;
         }
