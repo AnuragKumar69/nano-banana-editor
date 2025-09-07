@@ -124,9 +124,18 @@ export default function App() {
 
             if (result.image) {
                 const newImageDataUrl = `data:${result.image.mimeType};base64,${result.image.base64}`;
-                const newHistory = editHistory.slice(0, activeHistoryIndex + 1);
-                setEditHistory([...newHistory, newImageDataUrl]);
-                setActiveHistoryIndex(newHistory.length);
+                
+                // Non-destructive history update: insert the new image after its parent.
+                const newActiveIndex = activeHistoryIndex + 1;
+                const updatedHistory = [
+                    ...editHistory.slice(0, newActiveIndex),
+                    newImageDataUrl,
+                    ...editHistory.slice(newActiveIndex)
+                ];
+
+                setEditHistory(updatedHistory);
+                setActiveHistoryIndex(newActiveIndex);
+
                 setLastSuccessfulPrompt(currentPrompt);
                 if (!isRegeneration && !currentPromptOverride) setPrompt('');
                 if (clearMaskRef.current) clearMaskRef.current(); 
