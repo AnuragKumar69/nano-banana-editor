@@ -10,10 +10,10 @@ interface MaskingCanvasProps {
     undoMaskRef: RefObject<() => void>;
     drawMaskFromBoundingBoxRef: RefObject<(boundingBox: BoundingBox) => void>;
     onUndoStateChange: (canUndo: boolean) => void;
-    transform: { scale: number; x: number; y: number };
+    imageRenderedSize: { width: number; height: number; top: number; left: number };
 }
 
-export const MaskingCanvas: React.FC<MaskingCanvasProps> = ({ imageUrl, onMaskChange, brushMode, brushSize, clearMaskRef, undoMaskRef, drawMaskFromBoundingBoxRef, onUndoStateChange, transform }) => {
+export const MaskingCanvas: React.FC<MaskingCanvasProps> = ({ imageUrl, onMaskChange, brushMode, brushSize, clearMaskRef, undoMaskRef, drawMaskFromBoundingBoxRef, onUndoStateChange, imageRenderedSize }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [history, setHistory] = useState<ImageData[]>([]);
@@ -100,9 +100,9 @@ export const MaskingCanvas: React.FC<MaskingCanvasProps> = ({ imageUrl, onMaskCh
         img.onload = () => {
             const canvas = canvasRef.current;
             if (canvas) {
-                 const { width, height } = canvas.getBoundingClientRect();
-                 canvas.width = width;
-                 canvas.height = height;
+                 // Set internal resolution to match image's natural resolution for a high quality mask
+                 canvas.width = img.naturalWidth;
+                 canvas.height = img.naturalHeight;
                  clearCanvas();
             }
         };
@@ -111,12 +111,16 @@ export const MaskingCanvas: React.FC<MaskingCanvasProps> = ({ imageUrl, onMaskCh
     const getCoords = (e: React.MouseEvent | MouseEvent | Touch): { x: number; y: number } | null => {
         const canvas = canvasRef.current;
         if (!canvas) return null;
-        const rect = canvas.getBoundingClientRect();
 
-        // Correctly calculate canvas coordinates from viewport coordinates
-        // by accounting for the element's transformed position and scale.
-        const x = (e.clientX - rect.left) / transform.scale;
-        const y = (e.clientY - rect.top) / transform.scale;
+        const rect = canvas.getBoundingClientRect();
+        
+        // Mouse position relative to the canvas element on the screen
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        // Map from on-screen coordinates (rect.width/height) to internal canvas resolution (canvas.width/height)
+        const x = (mouseX / rect.width) * canvas.width;
+        const y = (mouseY / rect.height) * canvas.height;
         
         return { x, y };
     };
@@ -212,7 +216,14 @@ export const MaskingCanvas: React.FC<MaskingCanvasProps> = ({ imageUrl, onMaskCh
                 }
             }}
             onMouseMove={draw}
-            className={`absolute top-0 left-0 w-full h-full z-20 rounded-xl pointer-events-auto`}
+            className={`absolute z-20 rounded-xl pointer-events-auto`}
+            style={{
+                top: `${imageRenderedSize.top}px`,
+                left: `${imageRenderedSize.left}px`,
+                width: `${imageRenderedSize.width}px`,
+                height: `${imageRenderedSize.height}px`,
+                display: imageRenderedSize.width > 0 ? 'block' : 'none', // Hide until size is calculated
+            }}
         />
     );
 };

@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { Loader } from './components/Loader';
@@ -19,6 +20,30 @@ const dataUrlToParts = (dataUrl: string): { base64: string, mimeType: string } =
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 5;
+
+const MAX_RECENT_IMAGES = 6;
+
+const saveRecentImage = (dataUrl: string) => {
+    try {
+        const storedImages = localStorage.getItem('recentImages');
+        let recentImages = storedImages ? JSON.parse(storedImages) : [];
+        
+        // Remove if it already exists to move it to the front
+        recentImages = recentImages.filter((img: string) => img !== dataUrl);
+        
+        // Add to the front
+        recentImages.unshift(dataUrl);
+
+        // Limit the number of recent images
+        if (recentImages.length > MAX_RECENT_IMAGES) {
+            recentImages.length = MAX_RECENT_IMAGES;
+        }
+
+        localStorage.setItem('recentImages', JSON.stringify(recentImages));
+    } catch (error) {
+        console.error("Failed to save recent image to localStorage", error);
+    }
+};
 
 export default function App() {
     const [editHistory, setEditHistory] = useState<string[]>([]);
@@ -43,12 +68,15 @@ export default function App() {
 
     // Pan & Zoom state
     const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 });
+    const [imageRenderedSize, setImageRenderedSize] = useState({ width: 0, height: 0, top: 0, left: 0 });
+
 
     // --- Performance Refs for direct DOM manipulation ---
     const isPanningRef = useRef(false);
     const lastMousePositionRef = useRef({ x: 0, y: 0 });
     const mainContentRef = useRef<HTMLDivElement>(null);
     const canvasContainerRef = useRef<HTMLDivElement>(null);
+    const imageRef = useRef<HTMLImageElement>(null);
     const cursorPreviewRef = useRef<HTMLDivElement>(null);
     const transformRef = useRef(transform); // Ref to hold transform values during pan to avoid re-renders
 
@@ -66,9 +94,63 @@ export default function App() {
             cursorPreviewRef.current.style.width = `${brushSize}px`;
             cursorPreviewRef.current.style.height = `${brushSize}px`;
             cursorPreviewRef.current.style.border = `2px solid ${maskBrushMode === 'brush' ? 'white' : '#ef4444'}`;
+            // Fix: Corrected typo from maskBrushEffect to maskBrushMode.
             cursorPreviewRef.current.style.backgroundColor = maskBrushMode === 'brush' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(239, 68, 68, 0.3)';
         }
     }, [brushSize, maskBrushMode]);
+
+    const currentImage = editHistory.length > 0 ? editHistory[activeHistoryIndex] : null;
+
+    // This effect calculates the actual rendered size of the `object-contain` image
+    // to ensure the masking canvas aligns perfectly.
+    useEffect(() => {
+        const img = imageRef.current;
+        const container = canvasContainerRef.current;
+        if (!img || !container) return;
+    
+        const calculateSize = () => {
+            if (!img.naturalWidth || !img.naturalHeight) return;
+
+            const containerAspect = container.clientWidth / container.clientHeight;
+            const imageAspect = img.naturalWidth / img.naturalHeight;
+    
+            let width, height, top, left;
+    
+            if (imageAspect > containerAspect) {
+                // Image is wider than container, letterboxed top/bottom
+                width = container.clientWidth;
+                height = width / imageAspect;
+                top = (container.clientHeight - height) / 2;
+                left = 0;
+            } else {
+                // Image is taller than container, letterboxed left/right
+                height = container.clientHeight;
+                width = height * imageAspect;
+                left = (container.clientWidth - width) / 2;
+                top = 0;
+            }
+            
+            setImageRenderedSize(currentSize => {
+                if (currentSize.width !== width || currentSize.height !== height || currentSize.top !== top || currentSize.left !== left) {
+                    return { width, height, top, left };
+                }
+                return currentSize;
+            });
+        };
+    
+        const observer = new ResizeObserver(calculateSize);
+        observer.observe(container);
+        
+        img.onload = calculateSize;
+        if (img.complete) { // If image is already cached and loaded
+            calculateSize();
+        }
+    
+        return () => {
+            observer.disconnect();
+            img.onload = null;
+        };
+    }, [currentImage]);
 
 
     const clearMaskRef = useRef<() => void>(null);
@@ -76,11 +158,10 @@ export default function App() {
     const drawMaskFromBoundingBoxRef = useRef<(boundingBox: BoundingBox) => void>(null);
 
 
-    const handleImageUpload = (file: File) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const result = reader.result as string;
-            setEditHistory([result]);
+    const handleImageUpload = (imageData: string | File) => {
+        const processDataUrl = (dataUrl: string) => {
+            saveRecentImage(dataUrl);
+            setEditHistory([dataUrl]);
             setActiveHistoryIndex(0);
             setError(null);
             setModelResponseText(null);
@@ -91,8 +172,18 @@ export default function App() {
             setDetectedFeatures([]);
             resetTransform();
         };
-        reader.onerror = () => setError("Failed to read the image file.");
-        reader.readAsDataURL(file);
+
+        if (typeof imageData === 'string') {
+            processDataUrl(imageData);
+        } else {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const result = reader.result as string;
+                processDataUrl(result);
+            };
+            reader.onerror = () => setError("Failed to read the image file.");
+            reader.readAsDataURL(imageData);
+        }
     };
 
     const handleEditRequest = useCallback(async (
@@ -276,8 +367,8 @@ export default function App() {
             const dx = e.clientX - lastMousePositionRef.current.x;
             const dy = e.clientY - lastMousePositionRef.current.y;
             
-            transformRef.current.x += dx;
-            transformRef.current.y += dy;
+            transformRef.current.x += dx / transformRef.current.scale;
+            transformRef.current.y += dy / transformRef.current.scale;
             
             if (canvasContainerRef.current) {
                 canvasContainerRef.current.style.transform = `scale(${transformRef.current.scale}) translate(${transformRef.current.x}px, ${transformRef.current.y}px)`;
@@ -367,7 +458,6 @@ export default function App() {
     }, [handleUndo, handleRedo, isMasking, handleEditRequest, detectedFeatures]);
 
 
-    const currentImage = editHistory.length > 0 ? editHistory[activeHistoryIndex] : null;
     const cursorStyle = isMasking ? 'crosshair' : (detectedFeatures.length > 0 ? 'default' : 'grab');
 
     if (editHistory.length === 0) {
@@ -440,7 +530,7 @@ export default function App() {
                                 </div>
                             )}
                             {currentImage && (
-                                <img src={currentImage} alt="Edited" className="w-full h-full object-contain rounded-xl shadow-2xl shadow-black/50" />
+                                <img key={currentImage} ref={imageRef} src={currentImage} alt="Edited" className="w-full h-full object-contain rounded-xl shadow-2xl shadow-black/50" />
                             )}
                             {isMasking && currentImage && (
                                 <MaskingCanvas 
@@ -452,7 +542,7 @@ export default function App() {
                                     undoMaskRef={undoMaskRef} 
                                     drawMaskFromBoundingBoxRef={drawMaskFromBoundingBoxRef}
                                     onUndoStateChange={setCanUndoMask}
-                                    transform={transform}
+                                    imageRenderedSize={imageRenderedSize}
                                 />
                             )}
                              {detectedFeatures.length > 0 && (

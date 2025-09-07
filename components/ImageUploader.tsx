@@ -1,18 +1,37 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { UploadIcon } from './icons/UploadIcon';
 import { AppIcon } from './icons/AppIcon';
 
 interface ImageUploaderProps {
-    onImageUpload: (file: File) => void;
+    onImageUpload: (imageData: File | string) => void;
 }
+
+const getRecentImages = (): string[] => {
+    try {
+        const storedImages = localStorage.getItem('recentImages');
+        return storedImages ? JSON.parse(storedImages) : [];
+    } catch (error) {
+        console.error("Failed to parse recent images from localStorage", error);
+        return [];
+    }
+};
 
 export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) => {
     const [isDragging, setIsDragging] = useState(false);
+    const [recentImages, setRecentImages] = useState<string[]>([]);
+
+    useEffect(() => {
+        setRecentImages(getRecentImages());
+    }, []);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             onImageUpload(e.target.files[0]);
         }
+    };
+
+    const handleRecentImageClick = (dataUrl: string) => {
+        onImageUpload(dataUrl);
     };
 
     const handleDragEnter = useCallback((e: React.DragEvent<HTMLLabelElement>) => {
@@ -69,6 +88,27 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload }) =
                     <input id="image-upload" type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
                 </label>
             </div>
+
+            {recentImages.length > 0 && (
+                <div className="mt-12 w-full max-w-2xl">
+                    <h2 className="text-xs font-semibold tracking-wider text-gray-500 uppercase mb-4">Recent Images</h2>
+                    <div className="grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4">
+                        {recentImages.map((src, index) => (
+                            <button
+                                key={index}
+                                onClick={() => handleRecentImageClick(src)}
+                                className="aspect-square bg-gray-900 rounded-lg overflow-hidden group relative focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#05070D] transition-transform duration-200 hover:scale-105"
+                                title="Load this image"
+                            >
+                                <img src={src} alt={`Recent image ${index + 1}`} className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <span className="text-white text-sm font-bold">Load</span>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

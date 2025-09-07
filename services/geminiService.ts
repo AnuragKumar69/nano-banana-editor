@@ -40,6 +40,12 @@ export async function editImage(
         },
     };
 
+    const fullPrompt = maskBase64 
+        ? `Using the provided mask, apply the following instruction to the image: "${prompt}". Only change the area indicated by the white pixels in the mask. Preserve the rest of the image (corresponding to the black pixels in the mask) exactly as it is.`
+        : prompt;
+
+    // The order of parts is crucial. Sending visual information (image, mask)
+    // before the text prompt can be more reliable for some models.
     const requestParts: Part[] = [imagePart];
 
     if (maskBase64) {
@@ -52,11 +58,9 @@ export async function editImage(
         requestParts.push(maskPart);
     }
     
-    const fullPrompt = maskBase64 
-        ? `The user has provided an image and a mask. The mask highlights a specific region of interest. Apply the following user instruction to the image, taking the masked area into account: ${prompt}`
-        : prompt;
-
+    // Add the text prompt at the end.
     requestParts.push({ text: fullPrompt });
+
 
     try {
         const response: GenerateContentResponse = await ai.models.generateContent({
